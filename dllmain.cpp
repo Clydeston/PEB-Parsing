@@ -1,6 +1,7 @@
 #include <Windows.h>
 #include <iostream>
-#include "structs.h"
+#include "modules.h"
+#include "exports.h"
 
 /* PROCESS ENVIORNMENT BLOCK PEB */
 /* 
@@ -19,49 +20,30 @@ This is useful for av evasion as no api calls (getmodulehandle) are needed
 
 */
 
+// TODO FIX RUN TIME CHECK FAILURE #0
+typedef void*(WINAPI* GetProcAddressProto)(HMODULE, LPCSTR);
+
 DWORD WINAPI DllAttach(HMODULE Base) {
 #ifdef _DEBUG
 	AllocConsole();
 	freopen_s((FILE**)stdin, "CONIN$", "r", stdin);
 	freopen_s((FILE**)stdout, "CONOUT$", "w", stdout);	
 #endif
-	_PEB* pebPtr = nullptr;
-	__asm
-	{
-		mov eax, fs:[0x30]		
-		mov pebPtr, eax
-	}
-	printf("PEB Pointer: %p \n", pebPtr); 
-
-	if (!pebPtr)
-	{
-		printf("[+] Fucked it");		
-	}
-	// ptr to PEB_LDR_DATA struct which contains doubly linked list of all modules
-	PEB_LDR_DATA* peb_ldr_data = pebPtr->Ldr;
-	// first item of doublu linked list
-	LIST_ENTRY* list_head = &(peb_ldr_data->InMemoryOrderModuleList);
-	// ptr to current module being interated
-	LIST_ENTRY* list_entry;
-	// the list is circular so instead of null value iteration stops when the list has completed one full loop
-	for (list_entry = list_head->Flink; list_entry != list_head; list_entry = list_entry->Flink)
-	{
-		// LIST_ENTRY struct points to the InMemoryOrderLinks property 
-		// this means to get the LDR_DATA_TABLE_ENTRY for every module 
-		// we need to account for that by going back to 0x0 of the struct
-		LDR_DATA_TABLE_ENTRY* ldrDataEntry = (LDR_DATA_TABLE_ENTRY*)((char*)list_entry - sizeof(LIST_ENTRY));		
+	
+	char* kernel32Module = GetModule(L"KERNEL32.DLL");
+	char* user32Module = GetModule(L"USER32.DLL");
+	char* getProcAddressPtr = GetExportedFunction((char*)"GetProcAddress", kernel32Module);
 		
-		printf("Module: %ls Loaded \n", ldrDataEntry->FullDllName.Buffer);		
+	printf("GetProcAddress ptr -> %p\n", getProcAddressPtr);	
 
-		const wchar_t* moduleName = L"KERNEL32.DLL";
+	GetProcAddressProto myGetProcAddress = (GetProcAddressProto)GetExportedFunction((char*)"GetProcAddress", kernel32Module);;
+	printf("GetProcAddres address my: %p", myGetProcAddress);
+	// cannot get exported function for some reason?? 
+	myGetProcAddress((HMODULE)kernel32Module, "GetProcAddress");
 
-		if (wcswcs(ldrDataEntry->FullDllName.Buffer, moduleName))
-		{
-			printf("Found kernel32.dll base: %p \n", ldrDataEntry->DllBase);
-		}
-	}
+	//tGetProcAddress getProcAddress = (tGetProcAddress)GetExportedFunction((char*)"GetProcAddress", kernel32Module);
+	//printf("GetProcAddress typedef ptr -> %p\n", getProcAddress);
 
-	printf("[+] Finished iterating loaded modules");
 	while (!(GetAsyncKeyState(VK_DELETE) & 1))
 	{		
 		/*
